@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { dbService } from '../db';
-import { Account, AccountingVoucher, VoucherEntry } from '../types';
+import { Account, AccountingVoucher, VoucherEntry, Person, Invoice, Receive } from '../types';
 import { 
   TrendingUp, 
   Search, 
@@ -14,11 +14,15 @@ import {
   PieChart, 
   Layers, 
   ArrowUpRight, 
-  ArrowDownLeft 
+  ArrowDownLeft,
+  UserCheck,
+  FileText,
+  CreditCard,
+  ChevronLeft
 } from 'lucide-react';
 
 interface ReportsProps {
-  initialSubView: 'balance' | 'profit-loss' | 'capital' | 'review';
+  initialSubView: 'balance' | 'profit-loss' | 'capital' | 'review' | 'statement';
 }
 
 export default function Reports({ initialSubView }: ReportsProps) {
@@ -27,9 +31,15 @@ export default function Reports({ initialSubView }: ReportsProps) {
   // Db elements state
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [vouchers, setVouchers] = useState<AccountingVoucher[]>([]);
+  const [persons, setPersons] = useState<Person[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [receives, setReceives] = useState<Receive[]>([]);
 
   // Account review filter selector state
   const [reviewAccountId, setReviewAccountId] = useState('');
+  
+  // Statement person state
+  const [selectedPersonId, setSelectedPersonId] = useState('');
 
   useEffect(() => {
     setSubView(initialSubView);
@@ -39,7 +49,100 @@ export default function Reports({ initialSubView }: ReportsProps) {
   const loadData = () => {
     setAccounts(dbService.getAccounts());
     setVouchers(dbService.getAccountingVouchers());
+    setPersons(dbService.getPersons());
+    setInvoices(dbService.getInvoices());
+    setReceives(dbService.getReceives());
   };
+
+  const handlePrintStatement = () => {
+    const originalContent = document.getElementById('print-statement-area');
+    if (!originalContent) return;
+
+    // Create a temporary container directly under body
+    const printContainer = document.createElement('div');
+    printContainer.id = 'temp-print-container-direct';
+    printContainer.dir = 'rtl';
+    printContainer.innerHTML = originalContent.innerHTML;
+
+    // Remove no-print items from printed HTML
+    const noPrintItems = printContainer.querySelectorAll('.no-print');
+    noPrintItems.forEach(el => el.remove());
+
+    // Add a print-active class to body
+    document.body.classList.add('print-direct-active');
+    document.body.appendChild(printContainer);
+
+    // Add style tags to document.head if they don't exist
+    let styleTag = document.getElementById('print-direct-styles');
+    if (!styleTag) {
+      styleTag = document.createElement('style');
+      styleTag.id = 'print-direct-styles';
+      styleTag.innerHTML = `
+        @media print {
+          body.print-direct-active #root {
+            display: none !important;
+          }
+          body.print-direct-active #temp-print-container-direct {
+            display: block !important;
+            background: white !important;
+            color: black !important;
+            width: 100% !important;
+            direction: rtl !important;
+            font-family: system-ui, sans-serif !important;
+            padding: 24px !important;
+          }
+          .no-print, button, .btn {
+            display: none !important;
+          }
+        }
+      `;
+      document.head.appendChild(styleTag);
+    }
+
+    // Trigger browser print
+    setTimeout(() => {
+      try {
+        window.print();
+      } catch (err) {
+        console.error("Direct printing failed: ", err);
+      } finally {
+        // Cleanup afterwards
+        setTimeout(() => {
+          if (document.body.contains(printContainer)) {
+            document.body.removeChild(printContainer);
+          }
+          document.body.classList.remove('print-direct-active');
+        }, 1000);
+      }
+    }, 400);
+  };
+
+  const getInvoiceRemaining = (inv: Invoice) => inv.remainingBalance !== undefined ? inv.remainingBalance : inv.total;
+
+  const getPersonDebtDetails = (personId: string) => {
+    const personInvoices = invoices.filter(inv => inv.personId === personId && inv.type === 'sale');
+    const personReceives = receives.filter(r => r.personId === personId);
+    
+    const totalInvoiced = personInvoices.reduce((sum, inv) => sum + inv.total, 0);
+    const totalRemaining = personInvoices.reduce((sum, inv) => sum + getInvoiceRemaining(inv), 0);
+    const totalReceived = personReceives.reduce((sum, r) => sum + r.amount, 0);
+
+    return {
+      personInvoices,
+      personReceives,
+      totalInvoiced,
+      totalRemaining,
+      totalReceived
+    };
+  };
+
+  const debtors = persons.map(p => {
+    const details = getPersonDebtDetails(p.id);
+    return {
+      person: p,
+      ...details
+    };
+  }).filter(d => d.totalRemaining > 0);
 
   // Calculations
   const assetAccounts = accounts.filter(a => a.type === 'asset');
@@ -96,6 +199,12 @@ export default function Reports({ initialSubView }: ReportsProps) {
             className={`px-3 py-1.5 rounded-lg text-xs transition ${subView === 'review' ? 'bg-white shadow text-slate-800 font-bold' : 'text-slate-500 hover:text-slate-700'}`}
           >
             مرور جامع حساب ها
+          </button>
+          <button 
+            onClick={() => setSubView('statement')}
+            className={`px-3 py-1.5 rounded-lg text-xs transition ${subView === 'statement' ? 'bg-white shadow text-slate-800 font-bold' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            صورتحساب تفصیلی اشخاص
           </button>
         </div>
       </div>
@@ -340,6 +449,257 @@ export default function Reports({ initialSubView }: ReportsProps) {
                 </table>
               </div>
             </div>
+          )}
+        </div>
+      )}
+
+      {subView === 'statement' && (
+        <div className="space-y-4 animate-fade-in text-xs text-slate-800">
+          <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm flex flex-col sm:flex-row gap-4 justify-between items-center no-print">
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-slate-705">جستجو و فیلتر اشخاص:</span>
+              <select
+                value={selectedPersonId}
+                onChange={(e) => setSelectedPersonId(e.target.value)}
+                className="bg-slate-50 border-0 rounded-xl px-4 py-2 text-xs text-slate-755 focus:ring-1 focus:ring-indigo-500 font-bold"
+              >
+                <option value="">-- انتخاب طرف حساب (مشاهده همه بدهکاران) --</option>
+                {persons.map(p => {
+                  const details = getPersonDebtDetails(p.id);
+                  return (
+                    <option key={p.id} value={p.id}>
+                      {p.name} (کد: {p.code}) {details.totalRemaining > 0 ? `| بدهی: ${details.totalRemaining.toLocaleString()} ریال` : ''}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+            {selectedPersonId && (
+              <div className="flex gap-2">
+                <button
+                  onClick={handlePrintStatement}
+                  className="bg-white text-slate-900 border border-slate-200 text-xs font-black px-4 py-2 rounded-xl flex items-center gap-1.5 hover:bg-slate-100 transition cursor-pointer"
+                >
+                  <Printer size={14} />
+                  چاپ یا خروجی PDF صورتحساب
+                </button>
+                <button
+                  onClick={() => setSelectedPersonId('')}
+                  className="bg-slate-100 text-slate-600 text-xs font-bold px-4 py-2 rounded-xl hover:bg-slate-200 transition cursor-pointer"
+                >
+                  بازگشت به لیست بدهکاران
+                </button>
+              </div>
+            )}
+          </div>
+
+          {!selectedPersonId ? (
+            <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-sm animate-fade-in">
+              <div className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+                <div>
+                  <h3 className="text-xs font-bold text-slate-800 font-sans">لیست اشخاص بدهکار (مانده بدهی بزرگتر از صفر ریال)</h3>
+                  <p className="text-[10px] text-slate-400 mt-0.5">مجموع مانده فاکتورهای تسویه نشده هر فرد</p>
+                </div>
+                <span className="bg-rose-50 text-rose-600 px-3 py-1 rounded-full text-[10px] font-bold font-sans">
+                  تعداد بدهکاران: {debtors.length} نفر
+                </span>
+              </div>
+
+              {debtors.length === 0 ? (
+                <div className="p-16 text-center text-slate-400">
+                  <UserCheck size={48} className="mx-auto mb-2 opacity-30 text-emerald-500" />
+                  <p className="text-xs font-bold text-slate-700">خوشبختانه هیچ بدهی معوقه‌ای یافت نشد!</p>
+                  <p className="text-[10px] text-slate-400 mt-1">امور مالی شرکت با تمامی اشخاص در توازن کامل قرار دارد.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto text-xs">
+                  <table className="w-full text-right pb-1">
+                    <thead>
+                      <tr className="bg-slate-50/70 border-b border-slate-100 text-slate-500 font-bold p-3">
+                        <th className="p-3">کد شخص</th>
+                        <th className="p-3">نام و مشخصات شخص</th>
+                        <th className="p-3">تلفن تماس</th>
+                        <th className="p-3">شهر</th>
+                        <th className="p-3 text-left">مجموع فروش</th>
+                        <th className="p-3 text-left">مجموع دریافتی</th>
+                        <th className="p-3 text-left">مانده بدهی کل</th>
+                        <th className="p-3 text-center">صورتحساب تفصیلی</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-700 font-sans">
+                      {debtors.map(d => (
+                        <tr key={d.person.id} className="hover:bg-slate-50/20">
+                          <td className="p-3 font-mono font-bold text-slate-550">{d.person.code}</td>
+                          <td className="p-3 font-bold text-slate-800">{d.person.name}</td>
+                          <td className="p-3 font-mono">{d.person.phone}</td>
+                          <td className="p-3">{d.person.city}</td>
+                          <td className="p-3 text-left font-mono">{d.totalInvoiced.toLocaleString()} ریال</td>
+                          <td className="p-3 text-left font-mono text-emerald-600">{d.totalReceived.toLocaleString()} ریال</td>
+                          <td className="p-3 text-left font-mono font-bold text-rose-600">{d.totalRemaining.toLocaleString()} ریال</td>
+                          <td className="p-3 text-center">
+                            <button
+                              onClick={() => setSelectedPersonId(d.person.id)}
+                              className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 hover:text-indigo-800 px-3 py-1.5 rounded-xl text-[10px] font-bold shadow-xs transition cursor-pointer"
+                            >
+                              مشاهده ریز صورتحساب
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ) : (
+            (() => {
+              const selectedPerson = persons.find(p => p.id === selectedPersonId);
+              if (!selectedPerson) return null;
+              const { personInvoices, personReceives, totalInvoiced, totalRemaining, totalReceived } = getPersonDebtDetails(selectedPersonId);
+              return (
+                <div id="print-statement-area" className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm space-y-6 text-xs text-slate-800 leading-relaxed font-sans">
+                  {/* Title area */}
+                  <div className="border border-slate-300 p-5 rounded-xl grid grid-cols-12 gap-4 items-center">
+                    <div className="col-span-8 text-right space-y-1">
+                      <h1 className="text-base font-black text-slate-900 font-sans">صورتحساب مالی و معین تفصیلی طرف حساب</h1>
+                      <p className="text-[10px] text-slate-500 font-semibold">شرکت شادی آوران (میم بازی) - سیستم سازمان‌یافته مالی یکپارچه ابری</p>
+                      <p className="text-[10px] text-slate-400">آدرس: کاشان، بلوار واجدی | تلفن دفتر مرکزی: ۰۳۱۵۵۰۰۰۰۰۰</p>
+                    </div>
+                    <div className="col-span-4 text-left space-y-1 border-r border-slate-200 pr-4">
+                      <div><span className="font-semibold text-slate-500 text-[10px]">تاریخ گزارش:</span> <span className="font-mono font-bold">۱۴۰۵/۰۳/۰۵</span></div>
+                      <div><span className="font-semibold text-slate-500 text-[10px]">کد طرف حساب:</span> <span className="font-mono font-bold">{selectedPerson.code}</span></div>
+                      <div><span className="font-semibold text-slate-500 text-[10px]">نوع معامله:</span> <span className="font-bold text-indigo-600">ریالی مشتری</span></div>
+                    </div>
+                  </div>
+
+                  {/* Person Profile */}
+                  <div>
+                    <h4 className="font-bold text-slate-800 border-b border-slate-150 pb-1.5 mb-2.5 flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full"></span>
+                      مشخصات هویتی و ثبتی طرف حساب
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-y-2.5 gap-x-4 bg-slate-50/55 p-3.5 rounded-xl border border-slate-100">
+                      <div><span className="text-slate-400 font-medium">نام کامل حقیقی/حقوقی:</span> <span className="font-bold text-slate-900">{selectedPerson.name}</span></div>
+                      <div><span className="text-slate-400 font-medium">شماره همراه/ثابت:</span> <span className="font-mono font-bold text-slate-800">{selectedPerson.phone}</span></div>
+                      <div><span className="text-slate-400 font-medium">شهر سکونت:</span> <span className="font-bold text-slate-800">{selectedPerson.city}</span></div>
+                      {selectedPerson.nationalId && <div><span className="text-slate-400 font-medium">کد ملی / شناسه ملی:</span> <span className="font-mono font-bold text-slate-800">{selectedPerson.nationalId}</span></div>}
+                      {selectedPerson.company && <div><span className="text-slate-400 font-medium">شرکت متبوع:</span> <span className="font-semibold text-slate-800">{selectedPerson.company}</span></div>}
+                      {selectedPerson.address && <div className="md:col-span-3"><span className="text-slate-400 font-medium font-sans">نشانی دقیق پستی:</span> <span className="text-slate-800">{selectedPerson.address}</span></div>}
+                    </div>
+                  </div>
+
+                  {/* Scorecards */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-slate-50/50 rounded-xl p-3 border border-slate-100 text-center">
+                      <span className="text-slate-400 font-semibold block mb-0.5">مجموع فاکتورهای فروش</span>
+                      <span className="font-mono font-extrabold text-slate-800 text-sm">{totalInvoiced.toLocaleString()} <span className="text-[10px] font-normal font-sans">ریال</span></span>
+                    </div>
+                    <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-100 text-center">
+                      <span className="text-emerald-700 font-semibold block mb-0.5">کل وصولی‌های با فاکتور</span>
+                      <span className="font-mono font-extrabold text-emerald-850 text-sm">+{totalReceived.toLocaleString()} <span className="text-[10px] font-normal font-sans">ریال</span></span>
+                    </div>
+                    <div className="bg-rose-50 rounded-xl p-4 border border-rose-100 text-center ring-2 ring-rose-500/10">
+                      <span className="text-rose-700 font-bold block mb-0.5 animate-pulse">مانده کل بدهی فعلی</span>
+                      <span className="font-mono font-black text-rose-800 text-base">{totalRemaining.toLocaleString()} <span className="text-[10px] font-normal font-sans">ریال</span></span>
+                    </div>
+                  </div>
+
+                  {/* Invoices List */}
+                  <div>
+                    <h4 className="font-bold text-slate-800 border-b border-slate-150 pb-1.5 mb-2.5 flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 bg-rose-500 rounded-full"></span>
+                      ۱. لیست فاکتورهای فروش صادر شده
+                    </h4>
+                    <div className="border border-slate-150 rounded-xl overflow-hidden shadow-xs">
+                      <table className="w-full text-right">
+                        <thead>
+                          <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-150 p-2 text-[11px]">
+                            <th className="p-2">شماره فاکتور</th>
+                            <th className="p-2">تاریخ صدور</th>
+                            <th className="p-2">شرایط پرداخت</th>
+                            <th className="p-2">وضعیت فاکتور</th>
+                            <th className="p-2 text-left">مجموع فاکتور</th>
+                            <th className="p-2 text-left">مانده فاکتور (ریال)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-slate-700 font-sans">
+                          {personInvoices.length === 0 ? (
+                            <tr>
+                              <td colSpan={6} className="p-4 text-center text-slate-400">هیچ فاکتور فروش فعالی برای این مشتری صادر نشده است.</td>
+                            </tr>
+                          ) : (
+                            personInvoices.map(inv => (
+                              <tr key={inv.id} className="hover:bg-slate-50/10">
+                                <td className="p-2 font-mono font-bold text-slate-800">{inv.invoiceNumber}</td>
+                                <td className="p-2 font-mono">{inv.date}</td>
+                                <td className="p-2 font-medium">{inv.paymentMethod || 'نامشخص'}</td>
+                                <td className="p-2 font-medium">
+                                  <span className={`text-[10px] font-semibold ${inv.status === 'پیش فاکتور' ? 'text-amber-500' : 'text-slate-700'}`}>
+                                    {inv.status || 'تایید شده'}
+                                  </span>
+                                </td>
+                                <td className="p-2 text-left font-mono">{inv.total.toLocaleString()} ریال</td>
+                                <td className="p-2 text-left font-mono font-bold text-rose-600">{getInvoiceRemaining(inv).toLocaleString()} ریال</td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Receives List */}
+                  <div>
+                    <h4 className="font-bold text-slate-800 border-b border-slate-150 pb-1.5 mb-2.5 flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
+                      ۲. لیست اسناد وصولی و دریافتی‌ها
+                    </h4>
+                    <div className="border border-slate-150 rounded-xl overflow-hidden shadow-xs">
+                      <table className="w-full text-right">
+                        <thead>
+                          <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-150 p-2 text-[11px]">
+                            <th className="p-2">کد سند دریافت</th>
+                            <th className="p-2">تاریخ دریافت</th>
+                            <th className="p-2">نوع دریافت</th>
+                            <th className="p-2">مشخصات سند / چک بانکی</th>
+                            <th className="p-2 text-left">مبلغ وصول شده (ریال)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-slate-705 font-sans">
+                          {personReceives.length === 0 ? (
+                            <tr>
+                              <td colSpan={5} className="p-4 text-center text-slate-400">هیچ پرداخت یا سند وصولی برای این مشتری ثبت نشده است.</td>
+                            </tr>
+                          ) : (
+                            personReceives.map(rec => (
+                              <tr key={rec.id} className="hover:bg-slate-50/10">
+                                <td className="p-2 font-mono font-bold text-slate-800">{rec.code}</td>
+                                <td className="p-2 font-mono">{rec.date}</td>
+                                <td className="p-2 font-semibold text-slate-700">{rec.type}</td>
+                                <td className="p-2 font-sans text-slate-500 text-[10px]">
+                                  {rec.type === 'چک' ? (
+                                    <span>چک بانک {rec.bank} (سریال: {rec.checkSerial}) | موعد: {rec.dueDate} | وضعیت: {rec.status || 'موعد نرسیده'}</span>
+                                  ) : (
+                                    <span>وصول نقدی فیزیکی صندوق</span>
+                                  )}
+                                </td>
+                                <td className="p-2 text-left font-mono font-extrabold text-emerald-600">+{rec.amount.toLocaleString()} ریال</td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Signatures */}
+                  <div className="grid grid-cols-2 text-center text-[10px] text-slate-500 font-bold pt-16 border-t border-slate-150 mt-8 pb-1.5">
+                    <div>مهر و امضای امور مالی شرکت شادی آوران (میم بازی)</div>
+                    <div>امضا و تایید صحت حساب طرف معامله</div>
+                  </div>
+                </div>
+              );
+            })()
           )}
         </div>
       )}

@@ -187,7 +187,8 @@ export default function App() {
         { label: 'ترازنامه مالی ردیفی', action: () => navigateTo('reports', 'balance') },
         { label: 'صورت سود و زیان (P&L)', action: () => navigateTo('reports', 'profit-loss') },
         { label: 'صورتحساب سرمایه سهام', action: () => navigateTo('reports', 'capital') },
-        { label: 'مرور جامع دفاتر معین', action: () => navigateTo('reports', 'review') }
+        { label: 'مرور جامع دفاتر معین', action: () => navigateTo('reports', 'review') },
+        { label: 'صورتحساب تفصیلی اشخاص', action: () => navigateTo('reports', 'statement') }
       ]
     }
   ];

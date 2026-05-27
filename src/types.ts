@@ -66,7 +66,9 @@ export interface Transaction {
 export interface InvoiceItem {
   itemId: string;
   quantity: number;
-  price: number;
+  price: number; // قیمت فروش نهایی
+  consumerPrice?: number; // قیمت مصرف کننده اولیه
+  discountPercentage?: number; // درصد تخفیف روی قیمت مصرف کننده
   total: number;
 }
 
@@ -82,6 +84,9 @@ export interface Invoice {
   total: number; // calculated as (sum of items * quantity) - discount + tax
   description: string;
   createdAt: string;
+  paymentMethod?: '100% نقد' | '100% چک' | '50% نقد' | '30 % نقد' | string;
+  remainingBalance?: number; // مانده فاکتور
+  status?: 'پیش فاکتور' | 'تایید شده' | 'ارسال شده';
 }
 
 export interface FormulaInputItem {
@@ -169,5 +174,6 @@ export interface Receive {
   inquiryStatus?: string;
   status?: 'پاس شده' | 'موعد نرسیده' | 'برگشت';
   createdAt: string;
+  description?: string;
 }
 

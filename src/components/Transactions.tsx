@@ -164,6 +164,36 @@ export default function Transactions({ initialSubView }: TransactionsProps) {
       return;
     }
 
+    // 1. Get all sale invoices for this person
+    const personSaleInvoices = invoices.filter(inv => inv.personId === personId && inv.type === 'sale');
+    
+    // Calculate remaining balance helper
+    const getInvRemaining = (inv: Invoice) => {
+      return inv.remainingBalance !== undefined ? inv.remainingBalance : inv.total;
+    };
+    
+    // Total remaining balance across ALL of this person's invoices
+    const totalRemainingAllInvoices = personSaleInvoices.reduce((sum, inv) => sum + getInvRemaining(inv), 0);
+
+    // Validate the received amount limit based on open debts
+    if (invoiceIds.length === 1) {
+      const singleId = invoiceIds[0];
+      const singleInv = invoices.find(inv => inv.id === singleId);
+      const singleRemaining = singleInv ? getInvRemaining(singleInv) : 0;
+      
+      if (resolvedAmount > singleRemaining) {
+        if (totalRemainingAllInvoices < resolvedAmount) {
+          alert(`خریدار معوقه پیدا کرد! مجموع مانده بدهی کلیه فاکتورهای این شخص برابر با ${totalRemainingAllInvoices.toLocaleString()} ریال است. مبلغ دریافتی وارد شده (${resolvedAmount.toLocaleString()} ریال) بیشتر از بدهی کل است و امکان ثبت آن وجود ندارد.`);
+          return;
+        }
+      }
+    } else {
+      if (personSaleInvoices.length > 0 && resolvedAmount > totalRemainingAllInvoices) {
+        alert(`عدم امکان صدور تفصیلی: مبلغ دریافت کل صادر شده (${resolvedAmount.toLocaleString()} ریال) بیشتر از مجموع کل مانده فاکتورهای حساب معین شخص (${totalRemainingAllInvoices.toLocaleString()} ریال) است.`);
+        return;
+      }
+    }
+
     const recCode = `REC-${Math.floor(Math.random() * 90000) + 10000}`;
     const recId = `rec_${Date.now()}`;
 
@@ -171,7 +201,6 @@ export default function Transactions({ initialSubView }: TransactionsProps) {
       id: recId,
       code: recCode,
       personId,
-      invoiceIds: invoiceIds.length > 0 ? invoiceIds : undefined,
       amount: resolvedAmount,
       date,
       pic: pic || undefined,
@@ -190,12 +219,72 @@ export default function Transactions({ initialSubView }: TransactionsProps) {
       newReceive.status = checkStatus;
     }
 
+    // Debt allocation across invoices
+    let paymentLeft = resolvedAmount;
+    const finalInvolvedInvoiceIds: string[] = [];
+    const invoicesToUpdate = [...invoices]; // working copy
+
+    // A. Pay selected checkboxed invoices first
+    if (invoiceIds && invoiceIds.length > 0) {
+      invoiceIds.forEach(id => {
+        if (paymentLeft <= 0) return;
+        const targetIdx = invoicesToUpdate.findIndex(inv => inv.id === id);
+        if (targetIdx >= 0) {
+          const targetInvoice = invoicesToUpdate[targetIdx];
+          const currentRemaining = getInvRemaining(targetInvoice);
+          if (currentRemaining > 0) {
+            const toDeduct = Math.min(paymentLeft, currentRemaining);
+            const newRemaining = Math.max(0, currentRemaining - toDeduct);
+            paymentLeft -= toDeduct;
+            finalInvolvedInvoiceIds.push(id);
+            
+            invoicesToUpdate[targetIdx] = {
+              ...targetInvoice,
+              remainingBalance: newRemaining
+            };
+            dbService.saveInvoice(invoicesToUpdate[targetIdx]);
+          }
+        }
+      });
+    }
+
+    // B. Apply remaining amount to the other outstanding invoices of this person (FIFO older first)
+    if (paymentLeft > 0 && personSaleInvoices.length > 0) {
+      const otherUnpaidInvoices = personSaleInvoices
+        .filter(inv => !finalInvolvedInvoiceIds.includes(inv.id))
+        .filter(inv => getInvRemaining(inv) > 0)
+        .sort((a, b) => a.date.localeCompare(b.date));
+
+      otherUnpaidInvoices.forEach(invObj => {
+        if (paymentLeft <= 0) return;
+        const currentRemaining = getInvRemaining(invObj);
+        const toDeduct = Math.min(paymentLeft, currentRemaining);
+        const newRemaining = Math.max(0, currentRemaining - toDeduct);
+        paymentLeft -= toDeduct;
+        finalInvolvedInvoiceIds.push(invObj.id);
+
+        const targetIdx = invoicesToUpdate.findIndex(i => i.id === invObj.id);
+        if (targetIdx >= 0) {
+          invoicesToUpdate[targetIdx] = {
+            ...invObj,
+            remainingBalance: newRemaining
+          };
+          dbService.saveInvoice(invoicesToUpdate[targetIdx]);
+        }
+      });
+    }
+
+    // Set the list of all paid/partially-paid invoices into Receive
+    if (finalInvolvedInvoiceIds.length > 0) {
+      newReceive.invoiceIds = finalInvolvedInvoiceIds;
+    }
+
     // Save to Receives Table
     dbService.saveReceive(newReceive);
 
     // Also register standard transaction for financial statistics compatibility
     const personObj = persons.find(p => p.id === personId);
-    const invoicesCount = invoiceIds.length;
+    const invoicesCount = finalInvolvedInvoiceIds.length;
     const invText = invoicesCount > 0 
       ? ` بابت تسویه فاکتور فروش (تعداد: ${invoicesCount})`
       : '';
@@ -230,18 +319,23 @@ export default function Transactions({ initialSubView }: TransactionsProps) {
     let resolvedCategory = category;
 
     if (type === 'payment') resolvedCategory = category || 'پرداخت تسویه مطالبات';
-    if (type === 'expense') resolvedCategory = category || 'هزینه جاری عمومی';
+    if (type === 'expense') resolvedCategory = category || 'دیگر';
     
     if (type === 'waste') {
       resolvedCategory = 'ضایعات مواد اولیه تولید';
-      const itObj = items.find(i => i.id === itemId);
-      if (itObj && quantity) {
-        resolvedAmount = Number(quantity) * itObj.cost;
+      const typedAmount = Number(amount || 0);
+      if (typedAmount > 0) {
+        resolvedAmount = typedAmount;
+      } else {
+        const itObj = items.find(i => i.id === itemId);
+        if (itObj && quantity) {
+          resolvedAmount = Number(quantity) * (itObj.cost || itObj.price || 0);
+        }
       }
     }
 
-    if (type !== 'waste' && resolvedAmount <= 0) {
-      alert('مبلغ باید بیشتر از صفر باشد.');
+    if (resolvedAmount <= 0) {
+      alert('مبلغ باید بیشتر از صفر ریال باشد.');
       return;
     }
 
@@ -1434,18 +1528,39 @@ export default function Transactions({ initialSubView }: TransactionsProps) {
                   />
                 </div>
               ) : (
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-500 block">مقدار/تعداد ضایع شده <span className="text-rose-500">*</span></label>
-                  <input
-                    type="number"
-                    required
-                    min="1"
-                    value={quantity}
-                    onChange={(e) => setQuantity(e.target.value === '' ? '' : Number(e.target.value))}
-                    placeholder="تعداد ماده خام تلف‌شده"
-                    className="w-full bg-slate-50 border-0 rounded-xl px-4 py-2.5 text-xs text-slate-800 font-mono focus:bg-white outline-none transition"
-                  />
-                </div>
+                <>
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-500 block">تعداد ضایع شده <span className="text-rose-500">*</span></label>
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      value={quantity}
+                      onChange={(e) => {
+                        const q = e.target.value === '' ? '' : Number(e.target.value);
+                        setQuantity(q);
+                        const itObj = items.find(i => i.id === itemId);
+                        if (itObj && q !== '') {
+                          setAmount(Number(q) * (itObj.cost || itObj.price || 0));
+                        }
+                      }}
+                      placeholder="تعداد کالا/محصول تلف‌شده"
+                      className="w-full bg-slate-50 border-0 rounded-xl px-4 py-2.5 text-xs text-slate-800 font-mono focus:bg-white outline-none transition"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-500 block">مبلغ ضایعات (ریال) <span className="text-rose-500">*</span></label>
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      value={amount}
+                      onChange={(e) => setAmount(e.target.value === '' ? '' : Number(e.target.value))}
+                      placeholder="مجموع ارزش ضایع شده به ریال"
+                      className="w-full bg-slate-50 border-0 rounded-xl px-4 py-2.5 text-xs text-slate-800 font-mono focus:bg-white outline-none transition"
+                    />
+                  </div>
+                </>
               )}
 
               {subView.startsWith('payment') && (
@@ -1469,18 +1584,19 @@ export default function Transactions({ initialSubView }: TransactionsProps) {
 
               {subView.startsWith('expense') && (
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-500 block">طبقه‌بندی سرفصل هزینه</label>
+                  <label className="text-xs font-semibold text-slate-500 block">سرفصل هزینه‌کرد <span className="text-slate-400 font-normal">(اختیاری)</span></label>
                   <select
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
-                    className="w-full bg-slate-50 border-0 rounded-xl px-4 py-2.5 text-xs text-slate-705 outline-none focus:bg-white transition"
+                    className="w-full bg-slate-50 border-0 rounded-xl px-4 py-2.5 text-xs text-slate-705 outline-none focus:bg-white transition font-sans font-bold"
                   >
-                    <option value="">سایر هزینه‌های اداری تشکیلاتی</option>
-                    <option value="هزینه حقوق و دستمزد کارکنان">هزینه حقوق و دستمزد کارکنان</option>
-                    <option value="کرایه حمل و ترابری کالاها">کرایه حمل و ترابری کالاها</option>
-                    <option value="ملزومات اداری و دفتری">ملزومات اداری و دفتری</option>
-                    <option value="هزینه تبلیغات و بازاریابی">هزینه تبلیغات و بازاریابی</option>
-                    <option value="اجاره‌بهای سالن و دفتر شرکت">اجاره‌بهای سالن و دفتر شرکت</option>
+                    <option value="">-- انتخاب سرفصل هزینه --</option>
+                    <option value="حقوق کارگران">حقوق کارگران</option>
+                    <option value="دیگر">دیگر</option>
+                    <option value="وسایل ثابت کارگاه">وسایل ثابت کارگاه (تجهیزات)</option>
+                    <option value="وسایل مصرفی کارگاه">وسایل مصرفی کارگاه (مواد مصرفی)</option>
+                    <option value="پاس چک">پاس چک</option>
+                    <option value="قسط وام">قسط وام</option>
                   </select>
                 </div>
               )}
@@ -1491,7 +1607,16 @@ export default function Transactions({ initialSubView }: TransactionsProps) {
                   <select
                     value={itemId}
                     required
-                    onChange={(e) => setItemId(e.target.value)}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      setItemId(id);
+                      if (id) {
+                        const itObj = items.find(i => i.id === id);
+                        if (itObj && quantity) {
+                          setAmount(Number(quantity) * (itObj.cost || itObj.price || 0));
+                        }
+                      }
+                    }}
                     className="w-full bg-slate-50 border-0 rounded-xl px-4 py-2.5 text-xs text-slate-705 outline-none focus:bg-white transition"
                   >
                     <option value="">کالا را انتخاب کنید...</option>
@@ -1504,10 +1629,10 @@ export default function Transactions({ initialSubView }: TransactionsProps) {
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-500 block">توضیحات و شرح برگی</label>
+              <label className="text-xs font-semibold text-slate-500 block">توضیحات و شرح برگی {subView.startsWith('expense') && <span className="text-slate-400 font-normal">(اختیاری)</span>}</label>
               <textarea
                 value={description}
-                required
+                required={!subView.startsWith('expense')}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="توضیح کافی پیرامون جزئیات تراکنش به عنوان شرح سند ثبت معین..."
                 rows={3}
