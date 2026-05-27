@@ -1,0 +1,6 @@
+{
+  "name": "Shadi Avaran Accounting",
+  "description": "Comprehensive accounting, production receipts tracking, warehouse auditing, and sales reporting software for Shadi Avaran confectionary business in Persian.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

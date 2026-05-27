@@ -1,0 +1,233 @@
+{
+  "entities": {
+    "Person": {
+      "title": "Person",
+      "description": "A contact, customer, supplier, or employee of Shadi Avaran",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "code": { "type": "string" },
+        "type": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "type"]
+    },
+    "Item": {
+      "title": "Item",
+      "description": "Goods, inventory, or products for sale or production",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "code": { "type": "string" },
+        "unit": { "type": "string" },
+        "price": { "type": "number" },
+        "cost": { "type": "number" },
+        "stock": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "pic": { "type": "string" },
+        "category": { "type": "string" },
+        "numberInBox": { "type": "number" }
+      },
+      "required": ["id", "name", "unit"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Board game or item category classification table",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name"]
+    },
+    "Invoice": {
+      "title": "Invoice",
+      "description": "Sales invoices or purchase bills",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "invoiceNumber": { "type": "string" },
+        "date": { "type": "string" },
+        "personId": { "type": "string" },
+        "type": { "type": "string" },
+        "items": { "type": "array" },
+        "tax": { "type": "number" },
+        "discount": { "type": "number" },
+        "total": { "type": "number" },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "invoiceNumber", "date", "personId", "type", "total"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Cash collections, payments, revenues, expenses, or wastes",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "date": { "type": "string" },
+        "type": { "type": "string" },
+        "category": { "type": "string" },
+        "amount": { "type": "number" },
+        "personId": { "type": "string" },
+        "itemId": { "type": "string" },
+        "quantity": { "type": "number" },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "date", "type", "amount"]
+    },
+    "Formula": {
+      "title": "Production Formula",
+      "description": "Production bill of materials recipe",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "outputItemId": { "type": "string" },
+        "outputQuantity": { "type": "number" },
+        "inputItems": { "type": "array" },
+        "cost": { "type": "number" },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "outputItemId", "outputQuantity", "inputItems"]
+    },
+    "ProductionOrder": {
+      "title": "Production Order",
+      "description": "Instruction or order to manufacture items using a formula",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderNumber": { "type": "string" },
+        "date": { "type": "string" },
+        "formulaId": { "type": "string" },
+        "quantity": { "type": "number" },
+        "status": { "type": "string" },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "orderNumber", "date", "formulaId", "quantity", "status"]
+    },
+    "WarehouseVoucher": {
+      "title": "Warehouse Voucher",
+      "description": "Voucher for materials entry or exit (receipt/dispatch)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "voucherNumber": { "type": "string" },
+        "date": { "type": "string" },
+        "type": { "type": "string" },
+        "items": { "type": "array" },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "voucherNumber", "date", "type", "items"]
+    },
+    "AccountingVoucher": {
+      "title": "Accounting Voucher",
+      "description": "Double-entry general ledger voucher",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "voucherNumber": { "type": "string" },
+        "date": { "type": "string" },
+        "entries": { "type": "array" },
+        "description": { "type": "string" },
+        "isOpening": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "voucherNumber", "date", "entries"]
+    },
+    "Account": {
+      "title": "Account",
+      "description": "A ledger account in Chart of Accounts",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "balance": { "type": "number" }
+      },
+      "required": ["id", "code", "name", "type", "balance"]
+    },
+    "Receive": {
+      "title": "Receive",
+      "description": "Rich receipts or cash/check collections from customers with invoices details",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "personId": { "type": "string" },
+        "invoiceIds": { "type": "array" },
+        "amount": { "type": "number" },
+        "date": { "type": "string" },
+        "pic": { "type": "string" },
+        "type": { "type": "string" },
+        "dueDate": { "type": "string" },
+        "checkId": { "type": "string" },
+        "checkSerial": { "type": "string" },
+        "checkSeries": { "type": "string" },
+        "accountOwner": { "type": "string" },
+        "bank": { "type": "string" },
+        "inquiryStatus": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "code", "personId", "amount", "date", "type"]
+    }
+  },
+  "firestore": {
+    "/receives/{receiveId}": {
+      "schema": "Receive",
+      "description": "Custom rich collections (cash/checks)"
+    },
+    "/accounts/{accountId}": {
+      "schema": "Account",
+      "description": "Chart of Accounts ledger status"
+    },
+    "/persons/{personId}": {
+      "schema": "Person",
+      "description": "Contacts database"
+    },
+    "/items/{itemId}": {
+      "schema": "Item",
+      "description": "Products database"
+    },
+    "/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Categories lookup collection"
+    },
+    "/invoices/{invoiceId}": {
+      "schema": "Invoice",
+      "description": "Invoices registry"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Reveneus, expenses, receivables, payables, and wastes log"
+    },
+    "/formulas/{formulaId}": {
+      "schema": "Formula",
+      "description": "Manufacturing formulas"
+    },
+    "/productionOrders/{orderId}": {
+      "schema": "ProductionOrder",
+      "description": "Active and past manufacturing jobs"
+    },
+    "/warehouseVouchers/{voucherId}": {
+      "schema": "WarehouseVoucher",
+      "description": "Stock adjustments and warehouse movements"
+    },
+    "/accountingVouchers/{voucherId}": {
+      "schema": "AccountingVoucher",
+      "description": "Double entry book transactions"
+    }
+  }
+}
